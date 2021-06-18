@@ -248,6 +248,9 @@ void print_expr(T_expr expr_node, int indent) {
   case E_castexpr: print_castexpr(expr_node, indent); break;
   default: fprintf(stderr, "FATAL: unexpected expr kind\n"); exit(1); break;
   }
+  if (NULL != expr_node->type) {
+    print_type(expr_node->type, indent + 1);
+  }
 }
 
 
