@@ -1,10 +1,9 @@
 #include <stdio.h>
 
 #include "ast.h"
-
 #include "ast_printer.h"
-
 #include "parser.tab.h"
+#include "typecheck.h"
 
 extern FILE *yyout;  // the output of flex
 
@@ -20,6 +19,9 @@ int main(int argc, char **argv) {
 
   // kick off the parser, which will store the result in program_ast
   yyparse();
+
+  // type check program
+  check_prog(program_ast);
 
   // print the ast
   print_prog(program_ast, 0);

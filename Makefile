@@ -1,6 +1,8 @@
 SRC := \
 	lexer.c \
 	parser.tab.c \
+	typecheck.c \
+	table.c \
 	ast.c \
 	ast_printer.c \
 	util.c \
