@@ -547,4 +547,3 @@ void print_main(T_main main_node, int indent) {
   print_stmtlist(main_node->stmtlist, indent);
   print_expr(main_node->returnexpr, indent);
 }
-
