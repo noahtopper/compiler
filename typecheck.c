@@ -319,8 +319,6 @@ static void check_arrayexpr(T_expr expr) {
   // Check left expr has either type pointer or array
   T_expr left = expr->arrayexpr.expr;
   check_expr(left);
-  // Evaluate index expression
-  check_expr(expr->arrayexpr.index);
   // If pointer, unbox to pointer type
   if (E_pointertype == left->type->kind)
     expr->type = left->type->pointertype;
