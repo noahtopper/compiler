@@ -4,6 +4,7 @@
 #include "ast_printer.h"
 #include "parser.tab.h"
 #include "typecheck.h"
+#include "codegen.h"
 
 extern FILE *yyout;  // the output of flex
 
@@ -23,6 +24,9 @@ int main(int argc, char **argv) {
   // type check program
   check_prog(program_ast);
 
+  // generate code for program
+  codegen(program_ast);
+
   // print the ast
-  print_prog(program_ast, 0);
+  // print_prog(program_ast, 0);
 }
