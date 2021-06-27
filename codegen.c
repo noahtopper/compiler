@@ -109,6 +109,8 @@ static T_table global_symbols;
 
 static T_offset_scope current_offset_scope;
 
+static int label;
+
 void insert_offset(T_offset_scope scope, string ident, int size) {
   T_offset entry = xmalloc(sizeof(*entry));
   entry->offset = scope->current_offset;
@@ -143,6 +145,7 @@ static T_offset lookup_offset_in_all_offset_scopes(T_offset_scope offset_scope, 
 void codegen(T_prog prog) {
   // no need to record symbols in the global offset_scope.  the assembler and linker handle them.
   current_offset_scope = NULL;
+  label = 0;
   
   // emit assembly header
   printf(".file \"stdin\"\n");
@@ -160,7 +163,7 @@ void codegen(T_prog prog) {
   }
 
   // emit an .rodata section and label for strings
-  fprintf(stderr, "TODO: collect string constants");
+  fprintf(stderr, "TODO: collect string constants\n");
 
   // go through each function
   codegen_funclist(prog->funclist);
@@ -292,34 +295,107 @@ static void codegen_stmt(T_stmt stmt) {
 }
 
 static void codegen_assignstmt(T_stmt stmt) {
-  COMMENT("generate code for the right-hand side of the assignment");
-  codegen_expr(stmt->assignstmt.right);
-  // Save value to register
-  POP("%rax");
+  if (E_identexpr == stmt->assignstmt.left->kind) {
+    COMMENT("generate code for the right-hand side of the assignment");
+    codegen_expr(stmt->assignstmt.right);
+    POP("%rax");
+    // Find offset of left-hand side and place right-hand side value into left-hand side address
+    int offset = lookup_offset_in_scope(current_offset_scope, stmt->assignstmt.left->identexpr);
+    MOV_TO_OFFSET("%rax", offset);
+  }
+  else if (E_unaryexpr == stmt->assignstmt.left->kind) {
+    COMMENT("generate code for the deref on the left side of an expression");
+    codegen_expr(stmt->assignstmt.left->unaryexpr.expr);
+    COMMENT("generate code for the right-hand side of the assignment");
+    codegen_expr(stmt->assignstmt.right);
 
-  // Find address of left-hand side
-  int offset = lookup_offset_in_scope(current_offset_scope, stmt->assignstmt.left->identexpr);
-  // Place right-hand side value into left-hand side address
-  MOV_TO_OFFSET("%rax", offset);
+    COMMENT("pop the result of the right-hand side");
+    POP("%rax");
+    COMMENT("pop the result of the left-hand side");
+    POP("%rbx");
+    COMMENT("move the right-hand side's value into the address pointed to by the left-hand size");
+    MOV("%rax", "(%rbx)");
+  }
 }
 
 static void codegen_ifstmt(T_stmt stmt) {
-  // pending project 4
-  fprintf(stderr, "TODO: codegen_ifstmt (project 4)\n");
+  COMMENT("generating code for an ifstmt");
+
+  COMMENT("generate code for the expression");
+  codegen_expr(stmt->ifstmt.cond);
+  COMMENT("emit a pop of the expression value from the stack into a register");
+  POP("%rax");
+
+  COMMENT("emit a cmp of register's value to 0, i.e., check whether it's false");
+  printf("\tcmp $0, %%rax\n");
+  COMMENT("emit a je to the end label");
+  printf("\tje .L%d\n", label);
+  int endLabel = label++;
+
+  COMMENT("generate code for the if branch");
+  codegen_stmt(stmt->ifstmt.body);
+
+  COMMENT("emit the end label");
+  printf(".L%d:\n", endLabel);
 }
 
 static void codegen_ifelsestmt(T_stmt stmt) {
-  // pending project 4
-  fprintf(stderr, "TODO: codegen_ifelsestmt (project 4)\n");
+  COMMENT("generating code for an ifelsestmt");
+
+  COMMENT("generate code for the expression");
+  codegen_expr(stmt->ifelsestmt.cond);
+  COMMENT("emit a pop of the expression value from the stack into a register");
+  POP("%rax");
+
+  COMMENT("emit a cmp of register's value to 0, i.e., check whether it's false");
+  printf("\tcmp $0, %%rax\n");
+  COMMENT("emit a je to the else label");
+  printf("\tje .L%d\n", label);
+  int elseLabel = label++;
+
+  COMMENT("generate code for the if branch");
+  codegen_stmt(stmt->ifelsestmt.ifbranch);
+  COMMENT("emit a jump to the end label");
+  printf("\tjmp .L%d\n", label);
+  int endLabel = label++;
+
+  COMMENT("emit the else label");
+  printf(".L%d:\n", elseLabel);
+  COMMENT("generate code for the else branch");
+  codegen_stmt(stmt->ifelsestmt.elsebranch);
+
+  COMMENT("emit the end label");
+  printf(".L%d:\n", endLabel);
 }
 
 static void codegen_whilestmt(T_stmt stmt) {
-  // pending project 4
-  fprintf(stderr, "TODO: codegen_whilestmt (project 4)\n");
+  COMMENT("generating code for a whilestmt");
+
+  COMMENT("emit the head label");
+  printf(".L%d:\n", label);
+  int headLabel = label++;
+
+  COMMENT("generate code for the expression");
+  codegen_expr(stmt->whilestmt.cond);
+  COMMENT("emit a pop of the expression value from the stack into a register");
+  POP("%rax");
+
+  COMMENT("emit a cmp of register's value to 0, i.e., check whether it's false");
+  printf("\tcmp $0, %%rax\n");
+  COMMENT("emit a je to the end label");
+  printf("\tje .L%d\n", label);
+  int endLabel = label++;
+
+  COMMENT("generate code for the while body");
+  codegen_stmt(stmt->whilestmt.body);
+  COMMENT("emit a jump to the head label");
+  printf("\tjmp .L%d\n", headLabel);
+
+  COMMENT("emit the end label");
+  printf(".L%d:\n", endLabel);
 }
 
 static void codegen_compoundstmt(T_stmt stmt) {
-  COMMENT("generate code for body");
   codegen_stmtlist(stmt->compoundstmt.stmtlist);
 }
 
@@ -344,7 +420,6 @@ static void codegen_expr(T_expr expr) {
 }
 
 static void codegen_identexpr(T_expr expr) {
-  // todo: given in class
   // look up the ident, then move it to an intermediate register
   int offset = lookup_offset_in_scope(current_offset_scope, expr->identexpr);
   MOV_FROM_OFFSET(offset, "%rax");
@@ -385,8 +460,55 @@ static void codegen_arrayexpr(T_expr expr) {
 }
 
 static void codegen_unaryexpr(T_expr expr) {
-  // pending project 4
-  fprintf(stderr, "TODO: codegen_unaryexpr\n");
+  // Reference operator
+  if (E_op_ref == expr->unaryexpr.op) {
+    // Only allow referencing an identifier
+    if (E_identexpr != expr->unaryexpr.expr->kind) {
+        fprintf(stderr, "FATAL: unexpected expr kind in codegen_unaryexpr\n");
+        exit(1);
+    }
+
+    COMMENT("copy the base pointer to another register");
+    MOV("%rbp", "%rax");
+
+    int offset = lookup_offset_in_scope(current_offset_scope, expr->unaryexpr.expr->identexpr);
+    COMMENT("subtract the offset from the copy of the base pointer");
+    SUBCONST(offset, "%rax");
+
+    COMMENT("push the expression result");
+    PUSH("%rax");
+  }
+  // Dereference operator
+  else if (E_op_deref == expr->unaryexpr.op) {
+    COMMENT("generate code for the unary operand");
+    codegen_expr(expr->unaryexpr.expr);
+    COMMENT("pop the unary operand");
+    POP("%rax");
+
+    COMMENT("move the contents of the address to the result register");
+    MOV("(%rax)", "%rbx");
+    COMMENT("push the expression result");
+    PUSH("%rbx");
+  }
+  else if (E_op_not == expr->unaryexpr.op) {
+    codegen_expr(expr->unaryexpr.expr);
+    POP("%rax");
+
+    printf("\tcmp $0, %%rax\n");
+    printf("\tje .L%d\n", label);
+    MOV_FROM_IMMEDIATE(0, "%rax");
+    printf("\tjmp .L%d\n", ++label);
+
+    printf(".L%d:\n", label - 1);
+    MOV_FROM_IMMEDIATE(1, "%rax");
+
+    printf(".L%d:\n", label++);
+    PUSH("%rax");
+  }
+  else {
+    fprintf(stderr, "FATAL: unexpected op kind in codegen_unaryexpr\n"); 
+    exit(1);
+  }
 }
 
 static void codegen_binaryexpr(T_expr expr) {
@@ -424,6 +546,52 @@ static void codegen_binaryexpr(T_expr expr) {
     IDIV("%rbx");
     MOV("%rdx", "%rax");
     break;
+  case E_op_and:
+    printf("\tcmp $0, %%rax\n");
+    printf("\tje .L%d\n", label);
+    printf("\tcmp $0, %%rbx\n");
+    printf("\tje .L%d\n", label);
+
+    MOV_FROM_IMMEDIATE(1, "%rax");
+    printf("\tjmp .L%d\n", ++label);
+
+    printf(".L%d:\n", label - 1);
+    MOV_FROM_IMMEDIATE(0, "%rax");
+    printf(".L%d:\n", label++);
+    break;
+  case E_op_or:
+    printf("\tcmp $0, %%rax\n");
+    printf("\tjne .L%d\n", label);
+    printf("\tcmp $0, %%rbx\n");
+    printf("\tjne .L%d\n", label);
+
+    MOV_FROM_IMMEDIATE(0, "%rax");
+    printf("\tjmp .L%d\n", ++label);
+
+    printf(".L%d:\n", label - 1);
+    MOV_FROM_IMMEDIATE(1, "%rax");
+    printf(".L%d:\n", label++);
+    break;
+  case E_op_eq:
+    printf("\tcmp %%rax, %%rbx\n");
+    printf("\tje .L%d\n", label);
+    MOV_FROM_IMMEDIATE(0, "%rax");
+    printf("\tjmp .L%d\n", ++label);
+
+    printf(".L%d:\n", label - 1);
+    MOV_FROM_IMMEDIATE(1, "%rax");
+    printf(".L%d:\n", label++);
+    break;
+  case E_op_lt:
+    printf("\tcmp %%rax, %%rbx\n");
+    printf("\tjge .L%d\n", label);
+    MOV_FROM_IMMEDIATE(0, "%rax");
+    printf("\tjmp .L%d\n", ++label);
+
+    printf(".L%d:\n", label - 1);
+    MOV_FROM_IMMEDIATE(1, "%rax");
+    printf(".L%d:\n", label++);
+    break;
   default: fprintf(stderr, "FATAL: unexpected op kind in codegen_binaryexpr\n"); exit(1); break;
   }
 
@@ -432,7 +600,7 @@ static void codegen_binaryexpr(T_expr expr) {
 }
 
 static void codegen_castexpr(T_expr expr) {
-  // bonus: truncate or extend data between bitwidths depending on type  
+  codegen_expr(expr->castexpr.expr);
 }
 
 /**
